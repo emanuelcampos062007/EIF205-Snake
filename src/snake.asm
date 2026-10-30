@@ -20,14 +20,15 @@ data segment
     ;bild
     hlths db "Lives:",3,3,3
     ;ingame
-    letadd dw 09b4h,0848h,06b0h,01E8h,4 Dup(0) ;display addresses of collectable letters, this is being displayed and updated during the game play
-    dletadd dw 09b4h,0848h,06b0h,01E8h,4 Dup(0) ;default values for collectable letters addresses on display to return them back after reset the game
-    letnum db 4 ;number of collectable letters
-    fin db 4 ;to track the number of collectable letters
+    letadd dw 09b4h,0848h,06b0h,01E8h,05A0h,0A20h,0C00h,02D0h,04E0h,0B50h,0 Dup(0)
+    dletadd dw 09b4h,0848h,06b0h,01E8h,05A0h,0A20h,0C00h,02D0h,04E0h,0B50h,0 Dup(0)
+    letnum db 1
+    fin db 4
+    foodidx db 0
     hlth db 6 ;/2 ;health count which is 3 in this case
     ;Snake Info            
-    sadd dw 07D2h,5 Dup(0) ;address of the first letter on the display and this will be updated during game play and will add each letter address after collecting
-    snake db 'D',5 Dup(0) ;Collected letters array
+    sadd dw 07D2h,39 Dup(0)
+    snake db 'D',39 Dup(0)
     snakel db 1 ;collected letters count
     ;end 
     gmwin db "You Win"
@@ -260,10 +261,10 @@ bild proc ;is for placing borders and set chracters on the screen
     mov dl,snake 
     es: mov [di],dl  
     ;Place chracters in game screen
-    es: mov [09b4h],'a'
-    es: mov [0848h],'v'
-    es: mov [06b0h],'i' 
-    es: mov [01E8h],'s'
+    es: mov [09b4h],'o'
+    es: mov [0848h],0
+    es: mov [06b0h],0
+    es: mov [01E8h],0
     ret
 endp  
 
@@ -340,54 +341,78 @@ pop ax
 ret
 endp
 
-eat proc ;to check if the snake hit a letter or not and add it to the snake
-    push ax 
-    push cx 
-    
-    mov di,sadd 
-    es: cmp [di],0 
-    jz no
-    es: cmp [di],20h
-    jz wall 
-    xor ch,ch
-    mov cl,letnum 
+
+eat proc
+    push ax
+    push bx
+    push cx
+    push si
+    push di
+
+    mov di,sadd
+
+    xor cx,cx
+    mov cl,snakel
+    dec cx
+    jz checkfood
+
+    mov si,2
+
+bodycheck:
+    cmp di,sadd[si]
+    jz wallk
+    add si,2
+    loop bodycheck
+
+checkfood:
+    xor cx,cx
+    mov cl,letnum
     xor si,si
-    lop:
+
+foodcheck:
     cmp di,letadd[si]
     jz addf
     add si,2
-    loop lop
-    jmp wall
-    addf:
-    mov letadd[si],0 
-    xor bh,bh
-    mov bl,snakel
-    es: mov dl,[di]
-    mov snake[bx],dl
-    es: mov [di],0
-    add snakel,1 
-    sub fin,1
-    cmp fin,0
-    jz chkletters
-    jmp no
-    wall:
+    loop foodcheck
+
     cmp di,320
     jbe wallk
     cmp di,3840
     jae wallk
+
     mov ax,di
     mov bl,160
     div bl
     cmp ah,0
     jz wallk
+
     mov ax,di
     add ax,2
     mov bl,160
     div bl
     cmp ah,0
     jz wallk
+
     jmp no
-    wallk:
+
+addf:
+    xor bx,bx
+    mov bl,snakel
+    es: mov dl,[di]
+    mov snake[bx],dl
+    es: mov [di],0
+    add snakel,1
+    mov letadd[si],0
+    call nextfood
+    jmp no
+
+wallk:
+    pop di
+    pop si
+    pop cx
+    pop bx
+    pop ax
+
     xor bh,bh
     mov bl,hlth
     es: mov [bx+10],0
@@ -395,19 +420,21 @@ eat proc ;to check if the snake hit a letter or not and add it to the snake
     sub hlth,2
     cmp hlth,0
     jnz rest
-    pop cx
-    pop ax
-    call game_over 
-    rest: 
-    pop cx
-    pop ax
+    call game_over
+
+rest:
     call restart
-     
-    no:
+    ret
+
+no:
+    pop di
+    pop si
     pop cx
+    pop bx
     pop ax
-ret
+    ret
 endp 
+
 
 move_snake proc
     xor ch,ch
@@ -415,17 +442,18 @@ move_snake proc
     xor dl,dl
     mov cl,snakel
     xor bx,bx
-    l1mr:
+l1mr:
     mov di,sadd[si]
     mov dl,snake[bx]
     es: mov [di],dl
     add si,2
     inc bx
     loop l1mr
-    mov di,sadd[si] 
-    es:mov [di],0
-ret
+    mov di,sadd[si]
+    es: mov [di],0
+    ret
 endp
+
 
 border proc ;build borders function
     mov ah,0
@@ -464,19 +492,18 @@ ret
 endp
 
 restart proc
-    xor ch,ch  
+    xor ch,ch
     xor si,si
     mov cl,snakel
     inc cl
-    delt: 
+
+delt:
     mov di,sadd[si]
-    es:mov [di],0
+    es: mov [di],0
     add si,2
     loop delt
-       
+
     mov fin,4
-
-
     mov sadd,07D2h
     mov cl,snakel
     inc cl
@@ -484,28 +511,30 @@ restart proc
     inc si
     xor di,di
     add di,2
-    emptsn:
+
+emptsn:
     mov snake[si],0
     mov sadd[di],0
     add di,2
     inc si
     loop emptsn
+
     mov snakel,1
-    
+    mov foodidx,0
+
     xor ch,ch
     mov cl,letnum
     xor si,si
-    reslet:
+
+reslet:
     mov bx,dletadd[si]
     mov letadd[si],bx
     add si,2
     add bx,2
-    loop reslet      
-    xor si,si
-    mov snake[si],'D'
+    loop reslet
 
+    mov snake[0],'D'
     jmp startag
-
 endp
 
 chkletters proc
@@ -601,7 +630,62 @@ clearall proc
     int 10h 
     
 ret
-endp    
+endp 
+
+nextfood proc
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+
+    mov dl,10
+
+tryfood:
+    xor bx,bx
+    mov bl,foodidx
+    shl bx,1
+    mov di,dletadd[bx]
+
+    inc foodidx
+    cmp foodidx,10
+    jb indexok
+    mov foodidx,0
+
+indexok:
+    xor cx,cx
+    mov cl,snakel
+    xor si,si
+
+checksnake:
+    cmp di,sadd[si]
+    jz occupied
+    add si,2
+    loop checksnake
+
+    mov letadd,di
+    mov letadd[2],0
+    mov letadd[4],0
+    mov letadd[6],0
+
+    mov al,'o'
+    es: mov [di],al
+    jmp fooddone
+
+occupied:
+    dec dl
+    jnz tryfood
+
+fooddone:
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+endp
 
     
 end start ; set entry point and stop the assembler.
