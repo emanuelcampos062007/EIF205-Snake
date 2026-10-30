@@ -1,0 +1,9 @@
+*.exe
+*.com
+*.obj
+*.o
+*.bak
+*.tmp
+*.log
+.vscode/
+.idea/
