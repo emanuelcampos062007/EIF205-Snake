@@ -2,38 +2,68 @@
 ;Snake Project
 ;University Microproccessor course
 ;version 1.1
+;
+;Proyecto 2 - EIF205 Arquitectura de Computadoras
+;Adaptacion al Snake clasico (emu8086 y DOSBox)
+
+META_COMIDAS equ 20      ;comidas necesarias para ganar
+RETARDO_CX   equ 0001h   ;retardo entre movimientos en microsegundos (CX:DX)
+RETARDO_DX   equ 86A0h   ;0001:86A0h = 100000 us = 0.1 s
+
+PRINT macro texto, largo, posicion
+    push cx
+    push si
+    push di
+    lea si,texto
+    mov di,posicion
+    mov cx,largo
+    call print_str
+    pop di
+    pop si
+    pop cx
+endm
 
 data segment
     ;mainmenu
-    main1 db "Davis Snake"
-    main2 db "In this game you must eat 3 letters by sequence:"
-    main3 db "First eat 'a' then 'v' then 'i' then 's'"
-    main4 db "Move the snake by pressing the keys w,a,s,d"
-    main5 db "w:move up"
-    main6 db "s:move down"
-    main7 db "d:move right"
-    main8 db "a:move left"
-    about1 db "This game is done by: Eng. Davis,"
-    about2 db "For University Microproccessor course"
-    main9 db "The snake head is the 'D' in the middle of the screen"
-    main10 db "Press any key to start..."
+    main1 db "Snake 8086"
+    main2 db "Hay que comer 20 comidas 'o' para ganar"
+    main3 db "Para mover a la serpiente se usa w,a,s,d"
+    main4 db "w:arriba"
+    main5 db "s:abajo"
+    main6 db "d:derecha"
+    main7 db "a:izquierda"
+    main10 db "p:pausa"                                
+    about1 db "Basado en Davis Snake by Eng. Davis,"
+    about2 db "Proyecto 2 Arquitectura"
+    main8 db "La cabeza de la serpiente es la 'D'"
+    main9 db "Presione cualquier tecla para empezar..."
+    besttxt db "Record:"                           
     ;bild
-    hlths db "Lives:",3,3,3
-    ;ingame
-    letadd dw 09b4h,0848h,06b0h,01E8h,05A0h,0A20h,0C00h,02D0h,04E0h,0B50h,0 Dup(0)
-    dletadd dw 09b4h,0848h,06b0h,01E8h,05A0h,0A20h,0C00h,02D0h,04E0h,0B50h,0 Dup(0)
+    hlths db "Vidas:",3,3,3
+    foodtxt db "Comida:"                                 
+    hudbest db "Record:"                                 
+    pausetxt db "Pausa (p)"      
+    letadd dw 09b4h,0848h,06b0h,01E8h,05B4h,0A20h,0C00h,02D0h,04E0h,0B50h,0 Dup(0)
+    dletadd dw 09b4h,0848h,06b0h,01E8h,05B4h,0A20h,0C00h,02D0h,04E0h,0B50h,0 Dup(0)
     letnum db 1
     fin db 4
     foodidx db 0
-    hlth db 6 ;/2 ;health count which is 3 in this case
-    ;Snake Info            
+    hlth db 6 
+               
     sadd dw 07D2h,39 Dup(0)
     snake db 'D',39 Dup(0)
     snakel db 1 ;collected letters count
+   
+    food dw 0     
+    hiscore dw 0  
+    newrec db 0   
+    sp_ini dw 0   
     ;end 
-    gmwin db "You Win"
+    gmwin db "Victoria"
     gmov db "Game Over"
-    endtxt db "Press esc to exit"
+    eatentxt db "Cantidad de comida:"                         
+    newbest db "Nuevo record!"                       
+    endtxt db "Presione r para reiniciar o esc para salir"
     
 ends
 
@@ -43,8 +73,6 @@ ends
 
 code segment
 start:
-    mov ah,1 
-    int 21h
     mov ax, data
     mov ds, ax
     
@@ -52,6 +80,8 @@ start:
     mov es, ax 
     
     cld ;clear Direction Flag
+    
+    mov sp_ini,sp
     
     ;hide text cursor
     mov ah,1
@@ -61,13 +91,25 @@ start:
     
     call main_menu
     
+    new_game:
+    mov sp,sp_ini
+    mov food,0
+    mov newrec,0
+    mov hlth,6
+    mov hlths[6],3
+    mov hlths[7],3
+    mov hlths[8],3
+    jmp restart ;reinicia la serpiente y la comida, luego salta a startag
+    
     startag:
+    mov sp,sp_ini
     
     call bild ;put letters and draw borders
     
     xor cl,cl 
     xor dl,dl ;clear old values to not get input automatically or you can use it as the initial direction like " mov dl,'A' "
     read: ;check for keyboard inputs
+    call delay
     mov ah,1
     int 16H
     jz s1
@@ -80,6 +122,15 @@ start:
     s1: ;check if esc button is pressed
     cmp dl,1bh
     je ext
+    
+    cmp dl,'P'
+    jne s2
+    call pause_game
+    mov dl,cl ;seguir en la misma direccion
+    jmp read
+    
+    s2:
+    call no_reverse
     
     left:
     cmp dl,'A'
@@ -121,6 +172,8 @@ start:
     mov bh,7
     mov ax,700h
     int 10h
+    mov ax,3
+    int 10h
     mov ax, 4c00h ; exit to operating system.
     int 21h    
 ends 
@@ -129,103 +182,23 @@ ends
 main_menu proc
     call border
     
-    mov di,186h
-    lea si,main1
-    mov cx,11
-    lopem1:
-    movsb 
-    inc di
-    loop lopem1
+    PRINT main1,10,186h
+    PRINT main2,39,33Eh
+    PRINT main3,40,3DEh
+    PRINT main4,8,5dch
+    PRINT main5,7,67ch
+    PRINT main6,9,71ch
+    PRINT main7,11,7bch
+    PRINT main10,7,85Ch
+    PRINT about1,36,8DEh
+    PRINT about2,23,97Eh
+    PRINT main8,35,0ABEh
+    PRINT main9,40,0b5Eh
     
-    mov di,33Eh
-    lea si,main2
-    mov cx,48
-    lopem2:
-    movsb 
-    inc di
-    loop lopem2
-    
-    mov di,3DEh
-    lea si,main3
-    mov cx,40
-    lopem3:
-    movsb 
-    inc di
-    loop lopem3
-    
-    mov di,47Eh
-    lea si,main4
-    mov cx,43
-    lopem4:
-    movsb 
-    inc di
-    loop lopem4
-    
-    mov di,5dch
-    lea si,main5
-    mov cx,9
-    lopem5:
-    movsb 
-    inc di
-    loop lopem5
-    
-    mov di,67ch
-    lea si,main6
-    mov cx,11
-    lopem6:
-    movsb 
-    inc di
-    loop lopem6
-    
-    mov di,71ch
-    lea si,main7
-    mov cx,12
-    lopem7:
-    movsb 
-    inc di
-    loop lopem7
-    
-    mov di,7bch
-    lea si,main8
-    mov cx,11
-    lopem8:
-    movsb 
-    inc di
-    loop lopem8
-    
-    mov di,8DEh
-    lea si,about1
-    mov cx,33
-    lopea1:
-    movsb 
-    inc di
-    loop lopea1
-    
-    mov di,97Eh
-    lea si,about2
-    mov cx,37
-    lopea2:
-    movsb 
-    inc di
-    loop lopea2
-    
-    mov di,0ABEh
-    lea si,main9
-    mov cx,53
-    lopem9:
-    movsb 
-    inc di
-    loop lopem9
-    
-    mov di,0b5Eh
-    lea si,main10
-    mov cx,25
-    lopem10:
-    movsb 
-    inc di
-    loop lopem10
-    
-    
+    PRINT besttxt,7,0C9Eh
+    mov ax,hiscore
+    mov di,0CAEh
+    call print_num
        
     mov ah,7
     int 21h
@@ -240,21 +213,12 @@ bild proc ;is for placing borders and set chracters on the screen
     ;start point
     call border 
     
-    lea si,hlths
-    mov di,0
-    mov cx,9
-    loph:
-    movsb 
-    inc di
-    loop loph
+    PRINT hlths,9,0
+    PRINT main1,10,88h
     
-    lea si,main1
-    mov di,88h
-    mov cx,11
-    loph1:
-    movsb 
-    inc di
-    loop loph1   
+    PRINT foodtxt,7,1Ch
+    PRINT hudbest,7,38h
+    call draw_score
     
     xor dx,dx
     mov di,sadd
@@ -404,6 +368,7 @@ addf:
     add snakel,1
     mov letadd[si],0
     call nextfood
+    call food_up
     jmp no
 
 wallk:
@@ -416,7 +381,9 @@ wallk:
     xor bh,bh
     mov bl,hlth
     es: mov [bx+10],0
-    mov hlths[bx+2],0
+    mov si,bx
+    shr si,1
+    mov hlths[si+5],0
     sub hlth,2
     cmp hlth,0
     jnz rest
@@ -460,6 +427,11 @@ border proc ;build borders function
     mov al,3
     int 10h
     
+    mov ah,1
+    mov ch,2bh
+    mov cl,0bh
+    int 10h
+    
     mov ah,6
     mov al,0 
     mov bh,0ffh 
@@ -467,7 +439,7 @@ border proc ;build borders function
     mov ch,1
     mov cl,0
     mov dh,1
-    mov dl,80
+    mov dl,79
     int 10h
   
     mov ch,3
@@ -537,87 +509,49 @@ reslet:
     jmp startag
 endp
 
-chkletters proc
-    call move_snake
-    
-    cmp snake[1],'a'
-    jnz endtestl
-    cmp snake[2],'v'
-    jnz endtestl   
-    cmp snake[3],'i'
-    jnz endtestl   
-    cmp snake[4],'s'
-    jnz endtestl
-    call win
-    endtestl:
-    xor bh,bh
-    mov bl,hlth
-    es: mov [bx+10],0
-    mov hlths[bx+2],0
-    sub hlth,2
-    cmp hlth,0
-    jnz restc
-    call game_over 
-    restc: 
-    call restart
-    endp
-
 win proc 
     call clearall
     call border
      
-    mov di,7cah
-    lea si,gmwin
-    mov cx,7
-    lope1w:
-    movsb 
-    inc di
-    loop lope1w
-    
-    mov di,862h
-    lea si,endtxt
-    mov cx,17
-    lope2:
-    movsb 
-    inc di
-    loop lope2
-    
-    qwer1:         
-    mov ah,7
-    int 21h
-    cmp al,1bh         
-    jz ext
-    jmp qwer1
-    
-    ret
+    PRINT gmwin,8,7c8h
+    jmp end_screen
     endp
 game_over proc
     call clearall
     call border
     
-    mov di,7c8h
-    lea si,gmov
-    mov cx,9
-    lope1:
-    movsb 
-    inc di
-    loop lope1
+    PRINT gmov,9,7c8h
+    jmp end_screen
+endp
+
+end_screen proc
+    PRINT endtxt,42,846h
     
-    mov di,862h
-    lea si,endtxt
-    mov cx,17
-    lope2w:
-    movsb 
-    inc di
-    loop lope2w 
+    PRINT eatentxt,19,998h
+    mov ax,food
+    mov di,9C0h
+    call print_num
+    
+    PRINT besttxt,7,0A38h
+    mov ax,hiscore
+    mov di,0A60h
+    call print_num
+    
+    cmp newrec,1
+    jne qwer
+    PRINT newbest,13,0AD8h
     
     qwer:         
     mov ah,7
     int 21h
     cmp al,1bh         
-    jz ext
-    jmp qwer
-    
+    jne qwer_r
+    jmp ext
+    qwer_r:
+    and al,0dfh
+    cmp al,'R'
+    jne qwer
+    jmp new_game
 endp
 
 clearall proc
@@ -687,7 +621,142 @@ fooddone:
     ret
 endp
 
+food_up proc
+    push ax
+    inc food
+    mov ax,food
+    cmp ax,hiscore
+    jbe fu_draw
+    mov hiscore,ax
+    mov newrec,1
+fu_draw:
+    call draw_score
+    cmp food,META_COMIDAS
+    jb fu_end
+    pop ax
+    call win ;no regresa (win salta a end_screen)
+fu_end:
+    pop ax
+    ret
+endp
+
+draw_score proc
+    push ax
+    push di
+    mov ax,food
+    mov di,2Ch
+    call print_num
+    mov ax,hiscore
+    mov di,48h
+    call print_num
+    pop di
+    pop ax
+    ret
+endp
+
+print_num proc
+    push ax
+    push bx
+    push cx
+    push dx
+    push di
+    add di,4 ;empezar por el ultimo digito
+    mov cx,3
+    mov bx,10
+pn_loop:
+    xor dx,dx
+    div bx ;AX = AX/10, DX = residuo
+    add dl,'0'
+    es: mov [di],dl
+    sub di,2
+    loop pn_loop
+    pop di
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+endp
+
+print_str proc
+ps_loop:
+    movsb
+    inc di
+    loop ps_loop
+    ret
+endp
+
+pause_game proc
+    push ax
+    push cx
+    push di
+    PRINT pausetxt,9,58h
+pg_key:
+    mov ah,7
+    int 21h
+    cmp al,1bh
+    jne pg_p
+    jmp ext
+pg_p:
+    and al,0dfh
+    cmp al,'P'
+    jne pg_key
+    mov di,58h ;borrar el texto
+    mov cx,9
+pg_clr:
+    mov byte ptr es:[di],' '
+    add di,2
+    loop pg_clr
+    pop di
+    pop cx
+    pop ax
+    ret
+endp
+
+no_reverse proc
+    cmp snakel,1
+    jbe nr_end
+    cmp dl,'A'
+    jne nr_d
+    cmp cl,'D'
+    je nr_ignore
+    jmp nr_end
+nr_d:
+    cmp dl,'D'
+    jne nr_w
+    cmp cl,'A'
+    je nr_ignore
+    jmp nr_end
+nr_w:
+    cmp dl,'W'
+    jne nr_s
+    cmp cl,'S'
+    je nr_ignore
+    jmp nr_end
+nr_s:
+    cmp dl,'S'
+    jne nr_end
+    cmp cl,'W'
+    jne nr_end
+nr_ignore:
+    mov dl,cl
+nr_end:
+    ret
+endp
+
+delay proc
+    push ax
+    push cx
+    push dx
+    mov ah,86h
+    mov cx,RETARDO_CX
+    mov dx,RETARDO_DX
+    int 15h
+    pop dx
+    pop cx
+    pop ax
+    ret
+endp
+
     
 end start ; set entry point and stop the assembler.
-
-
